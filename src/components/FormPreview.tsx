@@ -1,14 +1,12 @@
 
 import { useState } from 'react'
 import { Form, Question } from '../lib/supabase'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './ui/card'
-import { Button } from './ui/button'
+import { Card, CardContent, CardFooter, CardHeader } from './ui/card'
 import { Input } from './ui/input'
-import { Textarea } from './ui/textarea'
+import { Label } from './ui/label'
 import { RadioGroup, RadioGroupItem } from './ui/radio-group'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
-import { Label } from './ui/label'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { Button } from './ui/button'
 
 interface FormPreviewProps {
   form: Form
@@ -16,135 +14,158 @@ interface FormPreviewProps {
 }
 
 export function FormPreview({ form, questions }: FormPreviewProps) {
+  const [responses, setResponses] = useState<Record<string, string>>({})
   const [currentStep, setCurrentStep] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, any>>({})
+  const [submitted, setSubmitted] = useState(false)
 
-  function handleAnswerChange(questionId: string, value: any) {
-    setAnswers({
-      ...answers,
+  const sortedQuestions = [...questions].sort((a, b) => a.order_number - b.order_number)
+  const currentQuestion = sortedQuestions[currentStep]
+  const isLastStep = currentStep === sortedQuestions.length - 1
+  const isFirstStep = currentStep === 0
+
+  function handleInputChange(questionId: string, value: string) {
+    setResponses({
+      ...responses,
       [questionId]: value
     })
   }
 
-  function nextStep() {
-    if (currentStep < questions.length - 1) {
+  function handleNext() {
+    if (isLastStep) {
+      handleSubmit()
+    } else {
       setCurrentStep(currentStep + 1)
     }
   }
 
-  function prevStep() {
-    if (currentStep > 0) {
+  function handlePrevious() {
+    if (!isFirstStep) {
       setCurrentStep(currentStep - 1)
     }
+  }
+
+  function handleSubmit() {
+    console.log('Form responses:', responses)
+    setSubmitted(true)
+  }
+
+  function handleReset() {
+    setResponses({})
+    setCurrentStep(0)
+    setSubmitted(false)
   }
 
   if (questions.length === 0) {
     return (
       <Card>
-        <CardContent className="py-10 text-center">
-          <p className="text-gray-500">Add questions to preview your form</p>
+        <CardContent className="pt-6">
+          <div className="text-center py-8">
+            <p className="text-gray-500">No questions added yet. Add some questions to preview your form.</p>
+          </div>
         </CardContent>
       </Card>
     )
   }
 
-  const currentQuestion = questions[currentStep]
-  const isLastStep = currentStep === questions.length - 1
+  if (submitted) {
+    return (
+      <Card>
+        <CardHeader>
+          <h2 className="text-xl font-bold text-center">Thank You!</h2>
+        </CardHeader>
+        <CardContent>
+          <div className="text-center py-8">
+            <p className="text-gray-700 mb-6">Your response has been recorded.</p>
+            <Button onClick={handleReset}>Submit Another Response</Button>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <Card className="max-w-2xl mx-auto">
       <CardHeader>
-        <div className="flex items-center justify-between mb-2">
-          <div className="text-sm text-gray-500">
-            Question {currentStep + 1} of {questions.length}
-          </div>
-          <div className="text-sm font-medium">
-            {Math.round(((currentStep + 1) / questions.length) * 100)}%
-          </div>
+        <div className="text-center">
+          <h2 className="text-xl font-bold">{form.title}</h2>
+          {form.description && (
+            <p className="text-gray-500 mt-2">{form.description}</p>
+          )}
         </div>
-        <div className="w-full bg-gray-200 rounded-full h-1.5">
+        <div className="w-full bg-gray-200 h-1 mt-4 rounded-full overflow-hidden">
           <div 
-            className="bg-primary h-1.5 rounded-full transition-all duration-300 ease-in-out" 
-            style={{ width: `${((currentStep + 1) / questions.length) * 100}%` }}
+            className="bg-primary h-1 transition-all duration-300 ease-in-out"
+            style={{ width: `${((currentStep + 1) / sortedQuestions.length) * 100}%` }}
           ></div>
         </div>
-        
-        {currentStep === 0 && (
-          <>
-            <CardTitle className="text-2xl mt-4">{form.title}</CardTitle>
-            {form.description && (
-              <CardDescription className="mt-2">{form.description}</CardDescription>
-            )}
-          </>
-        )}
       </CardHeader>
       
-      <CardContent className="pt-4">
-        <div className="space-y-4">
-          <div className="text-lg font-medium">
-            {currentQuestion.question_text}
-            {currentQuestion.required && <span className="text-red-500 ml-1">*</span>}
+      <CardContent>
+        {currentQuestion && (
+          <div className="py-4 space-y-4">
+            <div className="mb-6">
+              <h3 className="text-lg font-medium mb-2">
+                {currentQuestion.question_text}
+                {currentQuestion.required && <span className="text-red-500 ml-1">*</span>}
+              </h3>
+              
+              {currentQuestion.question_type === 'short_text' && (
+                <Input
+                  value={responses[currentQuestion.id] || ''}
+                  onChange={(e) => handleInputChange(currentQuestion.id, e.target.value)}
+                  placeholder="Your answer"
+                />
+              )}
+              
+              {currentQuestion.question_type === 'multiple_choice' && currentQuestion.options && (
+                <RadioGroup
+                  value={responses[currentQuestion.id] || ''}
+                  onValueChange={(value) => handleInputChange(currentQuestion.id, value)}
+                  className="space-y-2"
+                >
+                  {currentQuestion.options.map((option, index) => (
+                    <div key={index} className="flex items-center space-x-2">
+                      <RadioGroupItem value={option} id={`option-${currentQuestion.id}-${index}`} />
+                      <Label htmlFor={`option-${currentQuestion.id}-${index}`}>{option}</Label>
+                    </div>
+                  ))}
+                </RadioGroup>
+              )}
+              
+              {currentQuestion.question_type === 'dropdown' && currentQuestion.options && (
+                <Select
+                  value={responses[currentQuestion.id] || ''}
+                  onValueChange={(value) => handleInputChange(currentQuestion.id, value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select an option" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {currentQuestion.options.map((option, index) => (
+                      <SelectItem key={index} value={option}>{option}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
           </div>
-          
-          {currentQuestion.question_type === 'short_text' && (
-            <Textarea
-              value={answers[currentQuestion.id] || ''}
-              onChange={(e) => handleAnswerChange(currentQuestion.id, e.target.value)}
-              placeholder="Type your answer here..."
-              className="min-h-[100px]"
-            />
-          )}
-          
-          {currentQuestion.question_type === 'multiple_choice' && (
-            <RadioGroup
-              value={answers[currentQuestion.id] || ''}
-              onValueChange={(value) => handleAnswerChange(currentQuestion.id, value)}
-              className="space-y-3"
-            >
-              {currentQuestion.options?.map((option, i) => (
-                <div key={i} className="flex items-center space-x-2">
-                  <RadioGroupItem value={option} id={`option-${currentQuestion.id}-${i}`} />
-                  <Label htmlFor={`option-${currentQuestion.id}-${i}`}>{option}</Label>
-                </div>
-              ))}
-            </RadioGroup>
-          )}
-          
-          {currentQuestion.question_type === 'dropdown' && (
-            <Select
-              value={answers[currentQuestion.id] || ''}
-              onValueChange={(value) => handleAnswerChange(currentQuestion.id, value)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select an option" />
-              </SelectTrigger>
-              <SelectContent>
-                {currentQuestion.options?.map((option, i) => (
-                  <SelectItem key={i} value={option}>{option}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
+        )}
       </CardContent>
       
-      <CardFooter className="flex justify-between pt-6">
+      <CardFooter className="flex justify-between">
         <Button
           variant="outline"
-          onClick={prevStep}
-          disabled={currentStep === 0}
+          onClick={handlePrevious}
+          disabled={isFirstStep}
         >
-          <ChevronLeft className="h-4 w-4 mr-2" />
           Previous
         </Button>
         
-        <Button onClick={nextStep}>
-          {isLastStep ? 'Submit' : (
-            <>
-              Next
-              <ChevronRight className="h-4 w-4 ml-2" />
-            </>
-          )}
+        <Button
+          onClick={handleNext}
+          disabled={currentQuestion?.required && !responses[currentQuestion.id]}
+        >
+          {isLastStep ? 'Submit' : 'Next'}
         </Button>
       </CardFooter>
     </Card>

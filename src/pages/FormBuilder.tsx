@@ -34,17 +34,44 @@ export function FormBuilder() {
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(isEditing)
   const [error, setError] = useState<string | null>(null)
+  const [connectionError, setConnectionError] = useState<string | null>(null)
 
+  // Check Supabase connection on component mount
+  useEffect(() => {
+    checkConnection();
+  }, []);
+
+  // Load form data if editing
   useEffect(() => {
     if (isEditing) {
       loadForm()
     }
   }, [formId])
 
+  // Check Supabase connection
+  async function checkConnection() {
+    try {
+      const { error } = await supabase.from('forms').select('id').limit(1);
+      if (error) {
+        console.error('Connection check failed:', error);
+        setConnectionError(`Database connection error: ${error.message}`);
+        toast.error('Failed to connect to the database');
+      } else {
+        setConnectionError(null);
+      }
+    } catch (err) {
+      console.error('Connection check exception:', err);
+      setConnectionError('Failed to connect to the database');
+      toast.error('Failed to connect to the database');
+    }
+  }
+
   async function loadForm() {
     try {
       setLoading(true)
       setError(null)
+      
+      console.log('Loading form with ID:', formId);
       
       // Load form data
       const { data: formData, error: formError } = await supabase
@@ -58,6 +85,8 @@ export function FormBuilder() {
         throw formError
       }
       
+      console.log('Form data loaded:', formData);
+      
       // Load questions
       const { data: questionsData, error: questionsError } = await supabase
         .from('questions')
@@ -69,6 +98,8 @@ export function FormBuilder() {
         console.error('Questions load error:', questionsError)
         throw questionsError
       }
+      
+      console.log('Questions loaded:', questionsData);
       
       setForm(formData)
       setQuestions(questionsData || [])
@@ -89,13 +120,16 @@ export function FormBuilder() {
       
       console.log('Saving form:', form)
       
-      // Update form
+      // Update form with current timestamp
+      const formToSave = {
+        ...form,
+        updated_at: new Date().toISOString()
+      };
+      
+      // Insert or update the form
       const { data: formData, error: formError } = await supabase
         .from('forms')
-        .upsert({
-          ...form,
-          updated_at: new Date().toISOString()
-        })
+        .upsert(formToSave)
         .select()
       
       if (formError) {
@@ -105,17 +139,19 @@ export function FormBuilder() {
       
       console.log('Form saved successfully:', formData)
       
-      // Save each question individually
+      // Save each question
       for (const question of questions) {
         console.log('Saving question:', question)
         
+        const questionToSave = {
+          ...question,
+          form_id: form.id,
+          updated_at: new Date().toISOString()
+        };
+        
         const { error: questionError } = await supabase
           .from('questions')
-          .upsert({
-            ...question,
-            form_id: form.id,
-            updated_at: new Date().toISOString()
-          })
+          .upsert(questionToSave)
         
         if (questionError) {
           console.error('Question save error:', questionError)
@@ -127,18 +163,20 @@ export function FormBuilder() {
       if (isEditing && questions.length > 0) {
         const questionIds = questions.map(q => q.id)
         
-        console.log('Deleting questions not in:', questionIds)
+        console.log('Current question IDs:', questionIds)
         
-        // Use a different approach for the NOT IN clause
-        const { error: deleteError } = await supabase
-          .from('questions')
-          .delete()
-          .eq('form_id', form.id)
-          .filter('id', 'not.in', `(${questionIds.join(',')})`)
-        
-        if (deleteError) {
-          console.error('Question delete error:', deleteError)
-          throw deleteError
+        // Delete questions that are no longer in the form
+        if (questionIds.length > 0) {
+          const { error: deleteError } = await supabase
+            .from('questions')
+            .delete()
+            .eq('form_id', form.id)
+            .not('id', 'in', `(${questionIds.join(',')})`)
+          
+          if (deleteError) {
+            console.error('Question delete error:', deleteError)
+            throw deleteError
+          }
         }
       }
       
@@ -198,10 +236,14 @@ export function FormBuilder() {
       setSaving(true)
       setError(null)
       
+      // Generate a public URL if not already set
+      const publicUrl = form.public_url || uuidv4().substring(0, 8);
+      
       const { error } = await supabase
         .from('forms')
         .update({ 
           published: true,
+          public_url: publicUrl,
           updated_at: new Date().toISOString()
         })
         .eq('id', form.id)
@@ -211,19 +253,13 @@ export function FormBuilder() {
         throw error
       }
       
-      // Reload form to get the public_url
-      const { data, error: loadError } = await supabase
-        .from('forms')
-        .select('*')
-        .eq('id', form.id)
-        .single()
+      // Update local state
+      setForm({
+        ...form,
+        published: true,
+        public_url: publicUrl
+      });
       
-      if (loadError) {
-        console.error('Form reload error:', loadError)
-        throw loadError
-      }
-      
-      setForm(data)
       toast.success('Form published successfully')
     } catch (error) {
       console.error('Error publishing form:', error)
@@ -286,7 +322,7 @@ export function FormBuilder() {
           
           <Button 
             onClick={saveForm} 
-            disabled={saving}
+            disabled={saving || !!connectionError}
             size="sm"
           >
             <Save className="h-4 w-4 mr-2" />
@@ -294,6 +330,27 @@ export function FormBuilder() {
           </Button>
         </div>
       </div>
+
+      {connectionError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md flex items-start mb-4">
+          <AlertCircle className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="font-medium">Database Connection Error</p>
+            <p className="text-sm">{connectionError}</p>
+            <p className="text-sm mt-1">
+              Please check your Supabase connection and make sure the database is properly set up.
+              <Button 
+                variant="link" 
+                size="sm" 
+                className="text-red-700 p-0 h-auto font-medium" 
+                onClick={checkConnection}
+              >
+                Retry Connection
+              </Button>
+            </p>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md flex items-start">
