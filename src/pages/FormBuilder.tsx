@@ -86,7 +86,10 @@ export function FormBuilder() {
           updated_at: new Date().toISOString()
         })
       
-      if (formError) throw formError
+      if (formError) {
+        console.error('Form error:', formError)
+        throw formError
+      }
       
       // Update questions
       for (const question of questions) {
@@ -98,19 +101,40 @@ export function FormBuilder() {
             updated_at: new Date().toISOString()
           })
         
-        if (questionError) throw questionError
+        if (questionError) {
+          console.error('Question error:', questionError)
+          throw questionError
+        }
       }
       
       // Delete removed questions
-      if (isEditing) {
+      if (isEditing && questions.length > 0) {
         const questionIds = questions.map(q => q.id)
-        const { error: deleteError } = await supabase
-          .from('questions')
-          .delete()
-          .eq('form_id', form.id)
-          .not('id', 'in', `(${questionIds.join(',')})`)
         
-        if (deleteError && questionIds.length > 0) throw deleteError
+        // Handle the case when there are no questions to keep
+        if (questionIds.length > 0) {
+          const { error: deleteError } = await supabase
+            .from('questions')
+            .delete()
+            .eq('form_id', form.id)
+            .not('id', 'in', `(${questionIds.join(',')})`)
+          
+          if (deleteError) {
+            console.error('Delete error:', deleteError)
+            throw deleteError
+          }
+        } else {
+          // Delete all questions for this form
+          const { error: deleteAllError } = await supabase
+            .from('questions')
+            .delete()
+            .eq('form_id', form.id)
+          
+          if (deleteAllError) {
+            console.error('Delete all error:', deleteAllError)
+            throw deleteAllError
+          }
+        }
       }
       
       toast.success('Form saved successfully')
