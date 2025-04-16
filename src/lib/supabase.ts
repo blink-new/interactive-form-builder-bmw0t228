@@ -4,7 +4,18 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Create a Supabase client with the service role key for admin operations
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+  },
+  global: {
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  },
+});
 
 export type Form = {
   id: string;
@@ -37,4 +48,22 @@ export type Response = {
 
 export type FormWithQuestions = Form & {
   questions: Question[];
+};
+
+// Helper function to handle Supabase errors
+export const handleSupabaseError = (error: any) => {
+  console.error('Supabase error:', error);
+  
+  // Extract the most useful error message
+  let errorMessage = 'An error occurred';
+  
+  if (error.message) {
+    errorMessage = error.message;
+  } else if (error.error_description) {
+    errorMessage = error.error_description;
+  } else if (error.details) {
+    errorMessage = error.details;
+  }
+  
+  return errorMessage;
 };

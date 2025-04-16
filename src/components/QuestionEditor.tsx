@@ -50,7 +50,7 @@ export function QuestionEditor({ question, index, updateQuestion, removeQuestion
   }
 
   return (
-    <Card className="border shadow-sm">
+    <Card className="border shadow-sm hover:shadow-md transition-shadow duration-200">
       <CardContent className="pt-6 pb-2">
         <div className="flex items-start gap-2">
           <div className="mt-2 cursor-move">
@@ -103,6 +103,7 @@ export function QuestionEditor({ question, index, updateQuestion, removeQuestion
                           size="icon"
                           onClick={() => removeOption(i)}
                           disabled={question.options?.length === 1}
+                          className="text-gray-500 hover:text-red-500"
                         >
                           <Minus className="h-4 w-4" />
                         </Button>

@@ -2,17 +2,16 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { v4 as uuidv4 } from 'uuid'
-import { supabase, type Form, type Question } from '../lib/supabase'
+import { supabase, type Form, type Question, handleSupabaseError } from '../lib/supabase'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
 import { Card, CardContent } from '../components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
-import { Switch } from '../components/ui/switch'
 import { Label } from '../components/ui/label'
 import { QuestionEditor } from '../components/QuestionEditor'
 import { FormPreview } from '../components/FormPreview'
-import { Save, Eye, Plus, ArrowLeft, Share2 } from 'lucide-react'
+import { Save, Eye, Plus, ArrowLeft, Share2, AlertCircle } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 
 export function FormBuilder() {
@@ -34,6 +33,7 @@ export function FormBuilder() {
   const [activeTab, setActiveTab] = useState('edit')
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(isEditing)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (isEditing) {
@@ -44,6 +44,7 @@ export function FormBuilder() {
   async function loadForm() {
     try {
       setLoading(true)
+      setError(null)
       
       // Load form data
       const { data: formData, error: formError } = await supabase
@@ -52,7 +53,10 @@ export function FormBuilder() {
         .eq('id', formId)
         .single()
       
-      if (formError) throw formError
+      if (formError) {
+        console.error('Form load error:', formError)
+        throw formError
+      }
       
       // Load questions
       const { data: questionsData, error: questionsError } = await supabase
@@ -61,14 +65,18 @@ export function FormBuilder() {
         .eq('form_id', formId)
         .order('order_number', { ascending: true })
       
-      if (questionsError) throw questionsError
+      if (questionsError) {
+        console.error('Questions load error:', questionsError)
+        throw questionsError
+      }
       
       setForm(formData)
       setQuestions(questionsData || [])
     } catch (error) {
       console.error('Error loading form:', error)
-      toast.error('Failed to load form')
-      navigate('/')
+      const errorMessage = handleSupabaseError(error)
+      setError(errorMessage)
+      toast.error(`Failed to load form: ${errorMessage}`)
     } finally {
       setLoading(false)
     }
@@ -77,22 +85,30 @@ export function FormBuilder() {
   async function saveForm() {
     try {
       setSaving(true)
+      setError(null)
+      
+      console.log('Saving form:', form)
       
       // Update form
-      const { error: formError } = await supabase
+      const { data: formData, error: formError } = await supabase
         .from('forms')
         .upsert({
           ...form,
           updated_at: new Date().toISOString()
         })
+        .select()
       
       if (formError) {
-        console.error('Form error:', formError)
+        console.error('Form save error:', formError)
         throw formError
       }
       
-      // Update questions
+      console.log('Form saved successfully:', formData)
+      
+      // Save each question individually
       for (const question of questions) {
+        console.log('Saving question:', question)
+        
         const { error: questionError } = await supabase
           .from('questions')
           .upsert({
@@ -102,38 +118,27 @@ export function FormBuilder() {
           })
         
         if (questionError) {
-          console.error('Question error:', questionError)
+          console.error('Question save error:', questionError)
           throw questionError
         }
       }
       
-      // Delete removed questions
+      // Handle deleted questions if we're editing an existing form
       if (isEditing && questions.length > 0) {
         const questionIds = questions.map(q => q.id)
         
-        // Handle the case when there are no questions to keep
-        if (questionIds.length > 0) {
-          const { error: deleteError } = await supabase
-            .from('questions')
-            .delete()
-            .eq('form_id', form.id)
-            .not('id', 'in', `(${questionIds.join(',')})`)
-          
-          if (deleteError) {
-            console.error('Delete error:', deleteError)
-            throw deleteError
-          }
-        } else {
-          // Delete all questions for this form
-          const { error: deleteAllError } = await supabase
-            .from('questions')
-            .delete()
-            .eq('form_id', form.id)
-          
-          if (deleteAllError) {
-            console.error('Delete all error:', deleteAllError)
-            throw deleteAllError
-          }
+        console.log('Deleting questions not in:', questionIds)
+        
+        // Use a different approach for the NOT IN clause
+        const { error: deleteError } = await supabase
+          .from('questions')
+          .delete()
+          .eq('form_id', form.id)
+          .filter('id', 'not.in', `(${questionIds.join(',')})`)
+        
+        if (deleteError) {
+          console.error('Question delete error:', deleteError)
+          throw deleteError
         }
       }
       
@@ -144,7 +149,9 @@ export function FormBuilder() {
       }
     } catch (error) {
       console.error('Error saving form:', error)
-      toast.error('Failed to save form')
+      const errorMessage = handleSupabaseError(error)
+      setError(errorMessage)
+      toast.error(`Failed to save form: ${errorMessage}`)
     } finally {
       setSaving(false)
     }
@@ -189,6 +196,7 @@ export function FormBuilder() {
   async function publishForm() {
     try {
       setSaving(true)
+      setError(null)
       
       const { error } = await supabase
         .from('forms')
@@ -198,7 +206,10 @@ export function FormBuilder() {
         })
         .eq('id', form.id)
       
-      if (error) throw error
+      if (error) {
+        console.error('Form publish error:', error)
+        throw error
+      }
       
       // Reload form to get the public_url
       const { data, error: loadError } = await supabase
@@ -207,13 +218,18 @@ export function FormBuilder() {
         .eq('id', form.id)
         .single()
       
-      if (loadError) throw loadError
+      if (loadError) {
+        console.error('Form reload error:', loadError)
+        throw loadError
+      }
       
       setForm(data)
       toast.success('Form published successfully')
     } catch (error) {
       console.error('Error publishing form:', error)
-      toast.error('Failed to publish form')
+      const errorMessage = handleSupabaseError(error)
+      setError(errorMessage)
+      toast.error(`Failed to publish form: ${errorMessage}`)
     } finally {
       setSaving(false)
     }
@@ -274,10 +290,20 @@ export function FormBuilder() {
             size="sm"
           >
             <Save className="h-4 w-4 mr-2" />
-            Save
+            {saving ? 'Saving...' : 'Save'}
           </Button>
         </div>
       </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md flex items-start">
+          <AlertCircle className="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="font-medium">Error</p>
+            <p className="text-sm">{error}</p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6">
         <Card>
